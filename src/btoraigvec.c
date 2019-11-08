@@ -142,11 +142,11 @@ lt_aigvec (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
 {
   BtorAIGMgr *amgr;
   BtorAIG *res, *tmp, *term0, *term1;
-  uint32_t i, j;
+  uint32_t i;
 
   amgr = avmgr->amgr;
   res  = BTOR_AIG_FALSE;
-  for (j = 1, i = av1->width - 1; j <= av1->width; j++, i--)
+  for (i = av1->width - 1; i != ~(uint32_t)0; i--)
   {
     term0 = btor_aig_and (amgr, av1->aigs[i], BTOR_INVERT_AIG (av2->aigs[i]));
 
