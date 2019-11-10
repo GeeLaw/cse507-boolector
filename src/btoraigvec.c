@@ -166,6 +166,73 @@ lt_aigvec (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
   return res;
 }
 
+static void
+lt_aigvec_NC1_recurse(BtorAIGMgr *amgr,
+  BtorAIGVec *av1, BtorAIGVec *av2,
+  size_t begin, size_t end,
+  BtorAIG **lt, BtorAIG **gt)
+{
+  size_t mid;
+  BtorAIG *hi_lt, *hi_gt, *lo_lt, *lo_gt;
+  if (end <= begin)
+  {
+    *lt = BTOR_AIG_FALSE;
+    *gt = BTOR_AIG_FALSE;
+    return;
+  }
+  if (end - begin == 1)
+  {
+    /* lt = !v1 && v2 */
+    *lt = btor_aig_and(amgr,
+      BTOR_INVERT_AIG(av1->aigs[begin]),
+      av2->aigs[begin]);
+    /* gt = v1 && !v2 */
+    *gt = btor_aig_and(amgr,
+      av1->aigs[begin],
+      BTOR_INVERT_AIG(av2->aigs[begin]));
+    return;
+  }
+  mid = begin + ((end - begin) >> 1);
+  /* More significant bits are at lower indices. */
+  lt_aigvec_NC1_recurse(amgr, av1, av2,
+    begin, mid, &hi_lt, &hi_gt);
+  lt_aigvec_NC1_recurse(amgr, av1, av2,
+    mid, end, &lo_lt, &lo_gt);
+  /* lt = hi_lt || (!hi_gt && lo_lt) */
+  *lt = btor_aig_or(amgr,
+    hi_lt,
+    btor_aig_and(amgr,
+      BTOR_INVERT_AIG(hi_gt),
+      lo_lt
+    ));
+  /* gt = hi_gt || (!hi_lt && lo_gt) */
+  *gt = btor_aig_or(amgr,
+    hi_gt,
+    btor_aig_and(amgr,
+      BTOR_INVERT_AIG(hi_lt),
+      lo_gt
+    ));
+  /* Maintain reference counting. */
+  btor_aig_release(amgr, hi_lt);
+  btor_aig_release(amgr, hi_gt);
+  btor_aig_release(amgr, lo_lt);
+  btor_aig_release(amgr, lo_gt);
+}
+
+static BtorAIG *
+lt_aigvec_NC1(BtorAIGVecMgr *avmgr,
+  BtorAIGVec *av1, BtorAIGVec *av2)
+{
+  BtorAIGMgr *amgr;
+  BtorAIG *lt, *gt;
+  amgr = avmgr->amgr;
+  lt_aigvec_NC1_recurse(amgr,
+    av1, av2, 0, av1->width, &lt, &gt);
+  btor_aig_release(amgr, gt);
+  return lt;
+}
+
+
 BtorAIGVec *
 btor_aigvec_ult (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
 {
@@ -176,7 +243,7 @@ btor_aigvec_ult (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
   assert (av1->width == av2->width);
   assert (av1->width > 0);
   result          = new_aigvec (avmgr, 1);
-  result->aigs[0] = lt_aigvec (avmgr, av1, av2);
+  result->aigs[0] = lt_aigvec_NC1 (avmgr, av1, av2);
   return result;
 }
 
