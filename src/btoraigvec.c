@@ -173,7 +173,7 @@ lt_aigvec_NC1_recurse(BtorAIGMgr *amgr,
   BtorAIG **lt, BtorAIG **gt)
 {
   size_t mid;
-  BtorAIG *hi_lt, *hi_gt, *lo_lt, *lo_gt;
+  BtorAIG *hi_lt, *hi_gt, *lo_lt, *lo_gt, *tmp;
   if (end <= begin)
   {
     *lt = BTOR_AIG_FALSE;
@@ -199,19 +199,19 @@ lt_aigvec_NC1_recurse(BtorAIGMgr *amgr,
   lt_aigvec_NC1_recurse(amgr, av1, av2,
     mid, end, &lo_lt, &lo_gt);
   /* lt = hi_lt || (!hi_gt && lo_lt) */
-  *lt = btor_aig_or(amgr,
-    hi_lt,
-    btor_aig_and(amgr,
-      BTOR_INVERT_AIG(hi_gt),
-      lo_lt
-    ));
+  tmp = btor_aig_and(amgr,
+    BTOR_INVERT_AIG(hi_gt),
+    lo_lt
+  );
+  *lt = btor_aig_or(amgr, hi_lt, tmp);
+  btor_aig_release(amgr, tmp);
   /* gt = hi_gt || (!hi_lt && lo_gt) */
-  *gt = btor_aig_or(amgr,
-    hi_gt,
-    btor_aig_and(amgr,
-      BTOR_INVERT_AIG(hi_lt),
-      lo_gt
-    ));
+  tmp = btor_aig_and(amgr,
+    BTOR_INVERT_AIG(hi_lt),
+    lo_gt
+  );
+  *gt = btor_aig_or(amgr, hi_gt, tmp);
+  btor_aig_release(amgr, tmp);
   /* Maintain reference counting. */
   btor_aig_release(amgr, hi_lt);
   btor_aig_release(amgr, hi_gt);
