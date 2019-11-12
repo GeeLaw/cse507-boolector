@@ -226,31 +226,34 @@ btor_aigvec_ult (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
   return result;
 }
 
+static BtorAIG *
+eq_aigvec(BtorAIGMgr *amgr,
+  BtorAIG **v1, BtorAIG **v2, size_t count)
+{
+  BtorAIG *eq, *tmp1, *tmp2;
+  eq = btor_aig_eq(amgr, *v1, *v2);
+  for (--count, ++v1, ++v2; count != 0; --count, ++v1, ++v2)
+  {
+    tmp1 = eq;
+    tmp2 = btor_aig_eq(amgr, *v1, *v2);
+    eq = btor_aig_and(amgr, tmp1, tmp2);
+    btor_aig_release(amgr, tmp1);
+    btor_aig_release(amgr, tmp2);
+  }
+  return eq;
+}
+
 BtorAIGVec *
 btor_aigvec_eq (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
 {
-  BtorAIGMgr *amgr;
   BtorAIGVec *result;
-  BtorAIG *result_aig, *temp1, *temp2;
-  uint32_t i, width;
   assert (avmgr);
   assert (av1);
   assert (av2);
   assert (av1->width == av2->width);
   assert (av1->width > 0);
-  amgr       = avmgr->amgr;
-  width      = av1->width;
   result     = new_aigvec (avmgr, 1);
-  result_aig = btor_aig_eq (amgr, av1->aigs[0], av2->aigs[0]);
-  for (i = 1; i < width; i++)
-  {
-    temp1 = btor_aig_eq (amgr, av1->aigs[i], av2->aigs[i]);
-    temp2 = btor_aig_and (amgr, result_aig, temp1);
-    btor_aig_release (amgr, temp1);
-    btor_aig_release (amgr, result_aig);
-    result_aig = temp2;
-  }
-  result->aigs[0] = result_aig;
+  result->aigs[0] = eq_aigvec(avmgr->amgr, av1->aigs, av2->aigs, av1->width);
   return result;
 }
 
