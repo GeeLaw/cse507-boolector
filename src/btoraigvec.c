@@ -243,6 +243,57 @@ eq_aigvec(BtorAIGMgr *amgr,
   return eq;
 }
 
+static BtorAIG *
+eq_aigvec_NC1_recurse(BtorAIGMgr *amgr,
+  BtorAIG **v1, BtorAIG **v2, size_t count)
+{
+  size_t half;
+  BtorAIG *eq1, *eq2, *eq;
+  if (count == 1)
+  {
+    return btor_aig_eq(amgr, *v1, *v2);
+  }
+  half = (count >> 1);
+  eq1 = eq_aigvec_NC1_recurse(amgr, v1, v2, half);
+  eq2 = eq_aigvec_NC1_recurse(amgr, v1 + half, v2 + half, count - half);
+  eq = btor_aig_and(amgr, eq1, eq2);
+  btor_aig_release(amgr, eq1);
+  btor_aig_release(amgr, eq2);
+  return eq;
+}
+
+static BtorAIG *
+eq_aigvec_NC1_norecurse(BtorAIGMgr *amgr,
+  BtorAIG **v1, BtorAIG **v2, size_t count)
+{
+  size_t i, half;
+  /* GCC only, but who cares... */
+  BtorAIG *eq[count], *eq1, *eq2;
+  for (i = 0; i != count; ++i)
+  {
+    eq[i] = btor_aig_eq(amgr, *(v1++), *(v2++));
+  }
+  while (count != 1)
+  {
+    half = (count >> 1);
+    for (i = 0; i != half; ++i)
+    {
+      eq1 = eq[i << 1];
+      eq2 = eq[(i << 1) | 1];
+      eq[i] = btor_aig_and(amgr, eq1, eq2);
+      btor_aig_release(amgr, eq1);
+      btor_aig_release(amgr, eq2);
+    }
+    if ((count & 1))
+    {
+      eq[half] = eq[half << 1];
+      ++half;
+    }
+    count = half;
+  }
+  return *eq;
+}
+
 BtorAIGVec *
 btor_aigvec_eq (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
 {
