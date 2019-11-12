@@ -208,6 +208,53 @@ lt_aigvec_NC1_recurse(BtorAIGMgr *amgr,
   return lt;
 }
 
+static BtorAIG *
+lt_aigvec_NC1_norecurse(BtorAIGMgr *amgr,
+  BtorAIG **v1, BtorAIG **v2, size_t count)
+{
+  size_t i, half;
+  BtorAIG *lo_lt, *lo_leq, *hi_lt, *hi_leq, *tmp;
+  /* GCC only, but who cares... */
+  BtorAIG *lt[count], *leq[count];
+  /* Due to reversal, MSB has the largest index. */
+  for (i = 0, v1 += count, v2 += count; i != count; ++i, --v1, --v2)
+  {
+    lt[i] = btor_aig_and(amgr, BTOR_INVERT_AIG(v1[-1]), v2[-1]);
+    leq[i] = btor_aig_or(amgr, BTOR_INVERT_AIG(v1[-1]), v2[-1]);
+  }
+  while (count != 1)
+  {
+    half = (count >> 1);
+    for (i = 0; i != half; ++i)
+    {
+      lo_lt = lt[i << 1];
+      lo_leq = leq[i << 1];
+      hi_lt = lt[(i << 1) | 1];
+      hi_leq = leq[(i << 1) | 1];
+      /* lt = hi_lt || (hi_leq && lo_lt). */
+      tmp = btor_aig_and(amgr, hi_leq, lo_lt);
+      lt[i] = btor_aig_or(amgr, hi_lt, tmp);
+      btor_aig_release(amgr, tmp);
+      /* leq = hi_leq && lo_leq. */
+      leq[i] = btor_aig_and(amgr, hi_leq, lo_leq);
+      /* Clean up. */
+      btor_aig_release(amgr, hi_lt);
+      btor_aig_release(amgr, hi_leq);
+      btor_aig_release(amgr, lo_lt);
+      btor_aig_release(amgr, lo_leq);
+    }
+    if ((count & 1))
+    {
+      lt[half] = lt[half << 1];
+      leq[half] = leq[half << 1];
+      ++half;
+    }
+    count = half;
+  }
+  btor_aig_release(amgr, *leq);
+  return *lt;
+}
+
 BtorAIGVec *
 btor_aigvec_ult (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
 {
