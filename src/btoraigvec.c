@@ -266,6 +266,95 @@ lt_aigvec_NC1(BtorAIGVecMgr *avmgr,
   return lt;
 }
 
+static void
+lt_aigvec_NC1_combine(BtorAIGMgr *amgr,
+  BtorAIG **lt, BtorAIG **gt,
+  BtorAIG **lt_hi, BtorAIG **gt_hi,
+  BtorAIG **lt_lo, BtorAIG **gt_lo,
+  size_t count)
+{
+  BtorAIG *hi_lt, *hi_gt, *lo_lt, *lo_gt, *tmp;
+  size_t i, half;
+  while (count != 1)
+  {
+    half = (count >> 1);
+    for (i = 0; i != half; ++i)
+    {
+      hi_lt = lt_hi[i << 1];
+      hi_gt = gt_hi[i << 1];
+      lo_lt = lt_lo[i << 1];
+      lo_gt = gt_lo[i << 1];
+      /* lt = hi_lt || (!hi_gt && lo_lt) */
+      tmp = btor_aig_and(amgr,
+        BTOR_INVERT_AIG(hi_gt),
+        lo_lt
+      );
+      lt[i] = btor_aig_or(amgr, hi_lt, tmp);
+      btor_aig_release(amgr, tmp);
+      /* gt = hi_gt || (!hi_lt && lo_gt) */
+      tmp = btor_aig_and(amgr,
+        BTOR_INVERT_AIG(hi_lt),
+        lo_gt
+      );
+      gt[i] = btor_aig_or(amgr, hi_gt, tmp);
+      btor_aig_release(amgr, tmp);
+      /* Release unused nodes. */
+      btor_aig_release(amgr, hi_lt);
+      btor_aig_release(amgr, hi_gt);
+      btor_aig_release(amgr, lo_lt);
+      btor_aig_release(amgr, lo_gt);
+    }
+    if ((count & 1))
+    {
+      lt[half] = lt[half << 1];
+      gt[half] = gt[half << 1];
+      ++half;
+      fputs("!\n", stderr);
+    }
+    count = half;
+  }
+}
+
+static BtorAIG *
+lt_aigvec_NC1_norecurse_nestlo(BtorAIGVecMgr *avmgr,
+  BtorAIGVec *av1, BtorAIGVec *av2)
+{
+  BtorAIGMgr *amgr = avmgr->amgr;
+  size_t i, j, count = av1->width;
+  /* This is a GCC extension, but who cares. */
+  BtorAIG *lt[count];
+  BtorAIG *gt[count];
+  for (i = 0, j = count - 1; i != count; ++i, --j)
+  {
+    lt[i] = LT_AIGVEC_NC1_1(amgr, av1->aigs[j], av2->aigs[j]);
+    gt[i] = LT_AIGVEC_NC1_1(amgr, av2->aigs[j], av1->aigs[j]);
+  }
+  /* The lowest bits are the most deeply nested. */
+  lt_aigvec_NC1_combine(amgr,
+    lt, gt, lt + 1, gt + 1, lt, gt, count);
+  btor_aig_release(amgr, gt[0]);
+  return lt[0];
+}
+
+static BtorAIG *
+lt_aigvec_NC1_norecurse_nesthi(BtorAIGVecMgr *avmgr,
+  BtorAIGVec *av1, BtorAIGVec *av2)
+{
+  BtorAIGMgr *amgr = avmgr->amgr;
+  size_t i, count = av1->width;
+  /* This is a GCC extension, but who cares. */
+  BtorAIG *lt[count];
+  BtorAIG *gt[count];
+  for (i = 0; i != count; ++i)
+  {
+    lt[i] = LT_AIGVEC_NC1_1(amgr, av1->aigs[i], av2->aigs[i]);
+    gt[i] = LT_AIGVEC_NC1_1(amgr, av2->aigs[i], av1->aigs[i]);
+  }
+  lt_aigvec_NC1_combine(amgr,
+    lt, gt, lt, gt, lt + 1, gt + 1, count);
+  btor_aig_release(amgr, gt[0]);
+  return lt[0];
+}
 
 BtorAIGVec *
 btor_aigvec_ult (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
@@ -277,7 +366,7 @@ btor_aigvec_ult (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
   assert (av1->width == av2->width);
   assert (av1->width > 0);
   result          = new_aigvec (avmgr, 1);
-  result->aigs[0] = lt_aigvec_NC1 (avmgr, av1, av2);
+  result->aigs[0] = lt_aigvec_NC1_norecurse_nestlo (avmgr, av1, av2);
   return result;
 }
 
