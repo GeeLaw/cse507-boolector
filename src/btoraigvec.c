@@ -366,7 +366,6 @@ half_adder (BtorAIGMgr *amgr, BtorAIG *x, BtorAIG *y, BtorAIG **cout)
   btor_aig_release (amgr, not_x_and_not_y);
   return res;
 }
-
 static BtorAIG *
 full_adder (
     BtorAIGMgr *amgr, BtorAIG *x, BtorAIG *y, BtorAIG *cin, BtorAIG **cout)
@@ -380,6 +379,50 @@ full_adder (
   btor_aig_release (amgr, c2);
   return res;
 }
+static BtorAIG *
+xor_helper (BtorAIGMgr *amgr, BtorAIG *x, BtorAIG *y)
+{
+  BtorAIG *res, *x_and_y, *not_x, *not_y, *not_x_and_not_y;
+  x_and_y         = btor_aig_and (amgr, x, y);
+  not_x           = BTOR_INVERT_AIG (x);
+  not_y           = BTOR_INVERT_AIG (y);
+  not_x_and_not_y = btor_aig_and (amgr, not_x, not_y);
+  res        = btor_aig_or (amgr, x_and_y, not_x_and_not_y);
+  btor_aig_release (amgr, not_x_and_not_y);
+  return res;
+}
+static BtorAIG *
+generate (BtorAIGMgr *amgr, BtorAIG *x, BtorAIG *y)
+{
+  BtorAIG *res;
+  res         = btor_aig_and (amgr, x, y);
+  return res;
+}
+static BtorAIG *
+propagate (BtorAIGMgr *amgr, BtorAIG *x, BtorAIG *y)
+{
+  BtorAIG *res;
+  res         = xor_helper (amgr, x, y);
+  return res;
+}
+
+
+static BtorAIG *
+cl_adder (
+    BtorAIGMgr *amgr, BtorAIG *x, BtorAIG *y, BtorAIG *cin, BtorAIG **cout)
+{
+  BtorAIG *res, *g, *p, *temp;
+  g   = generate (amgr, x, y);
+  p   = propagate (amgr, x, y);
+  res = xor_helper(amgr,p,cin);
+  temp  = btor_aig_and (amgr, p, cin);
+  *cout = btor_aig_or (amgr, temp, g);
+  btor_aig_release (amgr, p);
+  btor_aig_release (amgr, temp);
+  btor_aig_release (amgr, g);
+  return res;
+}
+
 
 static int32_t
 compare_aigvec_lsb_first (BtorAIGVec *a, BtorAIGVec *b)
