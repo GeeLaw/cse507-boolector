@@ -382,14 +382,7 @@ full_adder (
 static BtorAIG *
 xor_helper (BtorAIGMgr *amgr, BtorAIG *x, BtorAIG *y)
 {
-  BtorAIG *res, *x_and_y, *not_x, *not_y, *not_x_and_not_y;
-  x_and_y         = btor_aig_and (amgr, x, y);
-  not_x           = BTOR_INVERT_AIG (x);
-  not_y           = BTOR_INVERT_AIG (y);
-  not_x_and_not_y = btor_aig_and (amgr, not_x, not_y);
-  res        = btor_aig_or (amgr, x_and_y, not_x_and_not_y);
-  btor_aig_release (amgr, not_x_and_not_y);
-  return res;
+  return BTOR_INVERT_AIG(btor_aig_eq(amgr, x, y));
 }
 static BtorAIG *
 generate (BtorAIGMgr *amgr, BtorAIG *x, BtorAIG *y)
