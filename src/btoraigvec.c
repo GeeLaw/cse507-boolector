@@ -523,7 +523,9 @@ btor_aigvec_add (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
   }
 
   result = new_aigvec (avmgr, av1->width);
-  add_aigvec_naive(avmgr->amgr, av1->aigs, av2->aigs, result->aigs, av1->width);
+  add_aigvec_recurse(avmgr->amgr,
+    av1->aigs, av2->aigs, result->aigs,
+    av1->width);
   return result;
 }
 
