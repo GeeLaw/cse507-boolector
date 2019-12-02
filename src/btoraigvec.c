@@ -681,6 +681,8 @@ mul_aigvec (BtorAIGVecMgr *avmgr, BtorAIGVec *a, BtorAIGVec *b)
     	is_zero[k] = true;
 
     uint32_t cur = width - 1;
+    uint32_t last = cur;
+
     for (j = log_width - 1; j >= 0; j--) {
     	uint32_t offset = cur;
      	for (i = 0; i < (1 << j); i++) {
@@ -691,22 +693,22 @@ mul_aigvec (BtorAIGVecMgr *avmgr, BtorAIGVec *a, BtorAIGVec *b)
      		if (!is_zero[child1] && !is_zero[child2]) {
      			reses_final[cur] = btor_aigvec_add(avmgr, reses_final[child1], reses_final[child2]);
      			is_zero[cur] = false;
+          last = cur;
      		}
      		else
      		 if (!is_zero[child1]) {
      			reses_final[cur] = reses_final[child1];  //  TODO implement with copy
      			is_zero[cur] = false;
-     		} else {
+     		} else
      			is_zero[cur] = true;
-     		}
      	}
 
 
      }
      for (k = 0; k < width; k++) 
         btor_aigvec_release_delete(avmgr, reses[k]);
-      // for (k = 0; k < 1; k++) 
-        // btor_aigvec_release_delete(avmgr, reses_final[k]);
+      for (k = 0; k < last; k++) 
+        btor_aigvec_release_delete(avmgr, reses_final[k]);
 
 
   	return reses_final[cur];
