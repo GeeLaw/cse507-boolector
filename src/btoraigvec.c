@@ -138,24 +138,23 @@ btor_aigvec_and (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
 }
 
 static BtorAIG *
-lt_aigvec (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
+lt_aigvec(BtorAIGMgr *amgr,
+  BtorAIG **v1, BtorAIG **v2, size_t count)
 {
-  BtorAIGMgr *amgr;
   BtorAIG *res, *tmp, *term0, *term1;
-  uint32_t i, j;
-
-  amgr = avmgr->amgr;
   res  = BTOR_AIG_FALSE;
-  for (j = 1, i = av1->width - 1; j <= av1->width; j++, i--)
+  v1 += count;
+  v2 += count;
+  for (; count != 0; --count, --v1, --v2)
   {
-    term0 = btor_aig_and (amgr, av1->aigs[i], BTOR_INVERT_AIG (av2->aigs[i]));
+    term0 = btor_aig_and (amgr, v1[-1], BTOR_INVERT_AIG (v2[-1]));
 
     tmp = btor_aig_and (amgr, BTOR_INVERT_AIG (term0), res);
     btor_aig_release (amgr, term0);
     btor_aig_release (amgr, res);
     res = tmp;
 
-    term1 = btor_aig_and (amgr, BTOR_INVERT_AIG (av1->aigs[i]), av2->aigs[i]);
+    term1 = btor_aig_and (amgr, BTOR_INVERT_AIG (v1[-1]), v2[-1]);
 
     tmp = btor_aig_or (amgr, term1, res);
     btor_aig_release (amgr, term1);
@@ -164,6 +163,96 @@ lt_aigvec (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
   }
 
   return res;
+}
+
+static void
+lt_aigvec_NC1_recurse_impl(BtorAIGMgr *amgr,
+  BtorAIG **v1, BtorAIG **v2, size_t count,
+  BtorAIG **lt, BtorAIG **leq)
+{
+  size_t half;
+  BtorAIG *hi_lt, *hi_leq, *lo_lt, *lo_leq, *tmp;
+  if (count == 1)
+  {
+    *lt = btor_aig_and(amgr, BTOR_INVERT_AIG(*v1), *v2);
+    *leq = btor_aig_or(amgr, BTOR_INVERT_AIG(*v1), *v2);
+    return;
+  }
+  half = (count >> 1);
+  lt_aigvec_NC1_recurse_impl(amgr,
+    v1, v2, half,
+    &hi_lt, &hi_leq);
+  lt_aigvec_NC1_recurse_impl(amgr,
+    v1 + half, v2 + half, count - half,
+    &lo_lt, &lo_leq);
+  /* lt = hi_lt || (hi_leq && lo_lt). */
+  tmp = btor_aig_and(amgr, hi_leq, lo_lt);
+  *lt = btor_aig_or(amgr, hi_lt, tmp);
+  btor_aig_release(amgr, tmp);
+  /* leq = hi_leq && lo_leq. */
+  *leq = btor_aig_and(amgr, hi_leq, lo_leq);
+  /* Clean up. */
+  btor_aig_release(amgr, hi_lt);
+  btor_aig_release(amgr, hi_leq);
+  btor_aig_release(amgr, lo_lt);
+  btor_aig_release(amgr, lo_leq);
+}
+
+static BtorAIG *
+lt_aigvec_NC1_recurse(BtorAIGMgr *amgr,
+  BtorAIG **v1, BtorAIG **v2, size_t count)
+{
+  BtorAIG *lt, *leq;
+  lt_aigvec_NC1_recurse_impl(amgr, v1, v2, count, &lt, &leq);
+  btor_aig_release(amgr, leq);
+  return lt;
+}
+
+static BtorAIG *
+lt_aigvec_NC1_norecurse(BtorAIGMgr *amgr,
+  BtorAIG **v1, BtorAIG **v2, size_t count)
+{
+  size_t i, half;
+  BtorAIG *lo_lt, *lo_leq, *hi_lt, *hi_leq, *tmp;
+  /* GCC only, but who cares... */
+  BtorAIG *lt[count], *leq[count];
+  /* Due to reversal, MSB has the largest index. */
+  for (i = 0, v1 += count, v2 += count; i != count; ++i, --v1, --v2)
+  {
+    lt[i] = btor_aig_and(amgr, BTOR_INVERT_AIG(v1[-1]), v2[-1]);
+    leq[i] = btor_aig_or(amgr, BTOR_INVERT_AIG(v1[-1]), v2[-1]);
+  }
+  while (count != 1)
+  {
+    half = (count >> 1);
+    for (i = 0; i != half; ++i)
+    {
+      lo_lt = lt[i << 1];
+      lo_leq = leq[i << 1];
+      hi_lt = lt[(i << 1) | 1];
+      hi_leq = leq[(i << 1) | 1];
+      /* lt = hi_lt || (hi_leq && lo_lt). */
+      tmp = btor_aig_and(amgr, hi_leq, lo_lt);
+      lt[i] = btor_aig_or(amgr, hi_lt, tmp);
+      btor_aig_release(amgr, tmp);
+      /* leq = hi_leq && lo_leq. */
+      leq[i] = btor_aig_and(amgr, hi_leq, lo_leq);
+      /* Clean up. */
+      btor_aig_release(amgr, hi_lt);
+      btor_aig_release(amgr, hi_leq);
+      btor_aig_release(amgr, lo_lt);
+      btor_aig_release(amgr, lo_leq);
+    }
+    if ((count & 1))
+    {
+      lt[half] = lt[half << 1];
+      leq[half] = leq[half << 1];
+      ++half;
+    }
+    count = half;
+  }
+  btor_aig_release(amgr, *leq);
+  return *lt;
 }
 
 BtorAIGVec *
@@ -176,35 +265,90 @@ btor_aigvec_ult (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
   assert (av1->width == av2->width);
   assert (av1->width > 0);
   result          = new_aigvec (avmgr, 1);
-  result->aigs[0] = lt_aigvec (avmgr, av1, av2);
+  result->aigs[0] = lt_aigvec_NC1_recurse(avmgr->amgr,
+    av1->aigs, av2->aigs, av1->width);
   return result;
+}
+
+static BtorAIG *
+eq_aigvec(BtorAIGMgr *amgr,
+  BtorAIG **v1, BtorAIG **v2, size_t count)
+{
+  BtorAIG *eq, *tmp1, *tmp2;
+  eq = btor_aig_eq(amgr, *v1, *v2);
+  for (--count, ++v1, ++v2; count != 0; --count, ++v1, ++v2)
+  {
+    tmp1 = eq;
+    tmp2 = btor_aig_eq(amgr, *v1, *v2);
+    eq = btor_aig_and(amgr, tmp1, tmp2);
+    btor_aig_release(amgr, tmp1);
+    btor_aig_release(amgr, tmp2);
+  }
+  return eq;
+}
+
+static BtorAIG *
+eq_aigvec_NC1_recurse(BtorAIGMgr *amgr,
+  BtorAIG **v1, BtorAIG **v2, size_t count)
+{
+  size_t half;
+  BtorAIG *eq1, *eq2, *eq;
+  if (count == 1)
+  {
+    return btor_aig_eq(amgr, *v1, *v2);
+  }
+  half = (count >> 1);
+  eq1 = eq_aigvec_NC1_recurse(amgr, v1, v2, half);
+  eq2 = eq_aigvec_NC1_recurse(amgr, v1 + half, v2 + half, count - half);
+  eq = btor_aig_and(amgr, eq1, eq2);
+  btor_aig_release(amgr, eq1);
+  btor_aig_release(amgr, eq2);
+  return eq;
+}
+
+static BtorAIG *
+eq_aigvec_NC1_norecurse(BtorAIGMgr *amgr,
+  BtorAIG **v1, BtorAIG **v2, size_t count)
+{
+  size_t i, half;
+  /* GCC only, but who cares... */
+  BtorAIG *eq[count], *eq1, *eq2;
+  for (i = 0; i != count; ++i)
+  {
+    eq[i] = btor_aig_eq(amgr, *(v1++), *(v2++));
+  }
+  while (count != 1)
+  {
+    half = (count >> 1);
+    for (i = 0; i != half; ++i)
+    {
+      eq1 = eq[i << 1];
+      eq2 = eq[(i << 1) | 1];
+      eq[i] = btor_aig_and(amgr, eq1, eq2);
+      btor_aig_release(amgr, eq1);
+      btor_aig_release(amgr, eq2);
+    }
+    if ((count & 1))
+    {
+      eq[half] = eq[half << 1];
+      ++half;
+    }
+    count = half;
+  }
+  return *eq;
 }
 
 BtorAIGVec *
 btor_aigvec_eq (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
 {
-  BtorAIGMgr *amgr;
   BtorAIGVec *result;
-  BtorAIG *result_aig, *temp1, *temp2;
-  uint32_t i, width;
   assert (avmgr);
   assert (av1);
   assert (av2);
   assert (av1->width == av2->width);
   assert (av1->width > 0);
-  amgr       = avmgr->amgr;
-  width      = av1->width;
   result     = new_aigvec (avmgr, 1);
-  result_aig = btor_aig_eq (amgr, av1->aigs[0], av2->aigs[0]);
-  for (i = 1; i < width; i++)
-  {
-    temp1 = btor_aig_eq (amgr, av1->aigs[i], av2->aigs[i]);
-    temp2 = btor_aig_and (amgr, result_aig, temp1);
-    btor_aig_release (amgr, temp1);
-    btor_aig_release (amgr, result_aig);
-    result_aig = temp2;
-  }
-  result->aigs[0] = result_aig;
+  result->aigs[0] = eq_aigvec(avmgr->amgr, av1->aigs, av2->aigs, av1->width);
   return result;
 }
 
@@ -252,6 +396,115 @@ compare_aigvec_lsb_first (BtorAIGVec *a, BtorAIGVec *b)
   return res;
 }
 
+/* Computes X+Y, X+Y+1,
+ * replaces X by X+Y, Y by X+Y+1,
+ * and saves the carry bits in c0, c1.
+ * Doesn't assume ownership of old values in X, Y.
+ */
+static void
+add_aigvec_recurse_impl(BtorAIGMgr *amgr,
+  BtorAIG **x, BtorAIG **y,
+  BtorAIG **c0, BtorAIG **c1,
+  size_t count)
+{
+  size_t half, i;
+  BtorAIG *t1, *t2, *cl0, *cl1, *ch0, *ch1;
+  BtorAIG *vh0, *vh1;
+  if (count == 1)
+  {
+    t1 = btor_aig_eq(amgr, *x, *y);
+    *c0 = btor_aig_and(amgr, *x, *y);
+    *c1 = btor_aig_or(amgr, *x, *y);
+    *x = btor_aig_not(amgr, t1);
+    *y = t1;
+    return;
+  }
+  /* Add the lower half. */
+  half = (count >> 1);
+  add_aigvec_recurse_impl(amgr, x, y, &cl0, &cl1, half);
+  /* Add the upper half without considering the carry from the lower half. */
+  add_aigvec_recurse_impl(amgr, x += half, y += half,
+    &ch0, &ch1, count -= half);
+  /* Adjust the upper half according to the carry from the lower half. */
+  for (i = 0; i != count; ++i)
+  {
+    /* Select high part of X+Y. */
+    t1 = btor_aig_and(amgr, BTOR_INVERT_AIG(cl0), *x);
+    t2 = btor_aig_and(amgr, cl0, *y);
+    vh0 = btor_aig_or(amgr, t1, t2);
+    btor_aig_release(amgr, t1);
+    btor_aig_release(amgr, t2);
+    /* Select high part of X+Y+1. */
+    t1 = btor_aig_and(amgr, BTOR_INVERT_AIG(cl1), *x);
+    t2 = btor_aig_and(amgr, cl1, *y);
+    vh1 = btor_aig_or(amgr, t1, t2);
+    btor_aig_release(amgr, t1);
+    btor_aig_release(amgr, t2);
+    /* Replace by the correct values. */
+    *(x++) = vh0;
+    *(y++) = vh1;
+  }
+  /* Select the carry bit of X+Y. */
+  t1 = btor_aig_and(amgr, BTOR_INVERT_AIG(cl0), ch0);
+  t2 = btor_aig_and(amgr, cl0, ch1);
+  *c0 = btor_aig_or(amgr, t1, t2);
+  btor_aig_release(amgr, t1);
+  btor_aig_release(amgr, t2);
+  /* Select the carry bit of X+Y+1. */
+  t1 = btor_aig_and(amgr, BTOR_INVERT_AIG(cl1), ch0);
+  t2 = btor_aig_and(amgr, cl1, ch1);
+  *c1 = btor_aig_or(amgr, t1, t2);
+  btor_aig_release(amgr, t1);
+  btor_aig_release(amgr, t2);
+  /* Clean up. */
+  btor_aig_release(amgr, ch0);
+  btor_aig_release(amgr, ch1);
+  btor_aig_release(amgr, cl0);
+  btor_aig_release(amgr, cl1);
+}
+
+static void
+add_aigvec_recurse(BtorAIGMgr *amgr,
+  BtorAIG **x, BtorAIG **y, BtorAIG **z,
+  size_t count)
+{
+  /* GCC only, but who cares... */
+  BtorAIG *xx[count], *yy[count];
+  BtorAIG *c0, *c1;
+  size_t i;
+  for (i = 0, x += count, y += count; i != count; ++i)
+  {
+    xx[i] = *(--x);
+    yy[i] = *(--y);
+  }
+  add_aigvec_recurse_impl(amgr, xx, yy, &c0, &c1, count);
+  btor_aig_release(amgr, c0);
+  btor_aig_release(amgr, c1);
+  for (i = 0, z += count; i != count; ++i)
+  {
+    *(--z) = xx[i];
+    btor_aig_release(amgr, yy[i]);
+  }
+}
+
+static void
+add_aigvec_naive(BtorAIGMgr *amgr,
+  BtorAIG **x, BtorAIG **y, BtorAIG **z,
+  size_t count)
+{
+  BtorAIG *cout, *cin;
+  uint32_t i, j;
+  cout = cin = BTOR_AIG_FALSE;
+  for (j = 1, i = count - 1; j <= count; j++, i--)
+  {
+    z[i] = full_adder (amgr, x[i], y[i], cin, &cout);
+    btor_aig_release (amgr, cin);
+    cin = cout;
+  }
+  btor_aig_release (amgr, cout);
+}
+
+
 BtorAIGVec *
 btor_aigvec_add (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
 {
@@ -261,10 +514,7 @@ btor_aigvec_add (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
   assert (av1->width == av2->width);
   assert (av1->width > 0);
 
-  BtorAIGMgr *amgr;
   BtorAIGVec *result;
-  BtorAIG *cout, *cin;
-  uint32_t i, j;
 
   if (btor_opt_get (avmgr->btor, BTOR_OPT_SORT_AIGVEC) > 0
       && compare_aigvec_lsb_first (av1, av2) > 0)
@@ -272,16 +522,10 @@ btor_aigvec_add (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
     BTOR_SWAP (BtorAIGVec *, av1, av2);
   }
 
-  amgr   = avmgr->amgr;
   result = new_aigvec (avmgr, av1->width);
-  cout = cin = BTOR_AIG_FALSE; /* for 'cout' to avoid warning */
-  for (j = 1, i = av1->width - 1; j <= av1->width; j++, i--)
-  {
-    result->aigs[i] = full_adder (amgr, av1->aigs[i], av2->aigs[i], cin, &cout);
-    btor_aig_release (amgr, cin);
-    cin = cout;
-  }
-  btor_aig_release (amgr, cout);
+  add_aigvec_recurse(avmgr->amgr,
+    av1->aigs, av2->aigs, result->aigs,
+    av1->width);
   return result;
 }
 
