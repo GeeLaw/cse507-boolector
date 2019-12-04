@@ -470,84 +470,63 @@ btor_aigvec_srl (BtorAIGVecMgr *avmgr, BtorAIGVec *av1, BtorAIGVec *av2)
   return result;
 }
 
-static BtorAIGVec *
-mul_aigvec_NC1 (BtorAIGVecMgr *avmgr, BtorAIGVec *a, BtorAIGVec *b)
+static void
+mul_aigvec_NC2_recurse_impl(BtorAIGMgr *amgr,
+  BtorAIG **a, BtorAIG **b, BtorAIG **c,
+  size_t begin, size_t end, size_t width)
 {
-	// assert (btor_util_is_power_of_2 (a->width));
+  size_t i, offset, mid;
+  BtorAIG *aa;
+  BtorAIG *c1[width], *c2[width];
+  if (end - begin == 1)
+  {
+    for (i = 0, offset = width - end, aa = a[begin];
+      i != end; ++i)
+    {
+      c[i] = btor_aig_and(amgr, b[i + offset], aa);
+    }
+    for (; i != width; ++i)
+    {
+      c[i] = BTOR_AIG_FALSE;
+    }
+    return;
+  }
+  mid = begin + ((end - begin) >> 1);
+  mul_aigvec_NC2_recurse_impl(amgr, a, b, c1, begin, mid, width);
+  mul_aigvec_NC2_recurse_impl(amgr, a, b, c2, mid, end, width);
+  add_aigvec_recurse(amgr, c1, c2, c, width);
+  for (i = 0; i != width; ++i)
+  {
+    btor_aig_release(amgr, c1[i]);
+    btor_aig_release(amgr, c2[i]);
+  }
+}
 
-	BtorAIGMgr *amgr;
-	amgr  = btor_aigvec_get_aig_mgr (avmgr);
-	uint32_t width, k, i;
-	int j; 
-	width = a->width;
+static BtorAIGVec *
+mul_aigvec_NC2_recurse(BtorAIGVecMgr *avmgr, BtorAIGVec *a, BtorAIGVec *b)
+{
+  BtorAIGVec *result;
 
-	assert (width > 0);
-	assert (width == b->width);
+	assert (a->width > 0);
+	assert (a->width == b->width);
 
-	
 	if (btor_opt_get (avmgr->btor, BTOR_OPT_SORT_AIGVEC) > 0
 	  && compare_aigvec_lsb_first (a, b) > 0)
 	{
 		BTOR_SWAP (BtorAIGVec *, a, b);
 	}
 
-	uint32_t log_width = btor_util_log_2(2 * width - 1); // TODO Change this
-	uint32_t new_width = btor_util_pow_2(log_width);
-    BtorAIGVec *reses[width];
-
-    BtorAIGVec *reses_final[new_width*2];
-    for (k = 0; k < new_width *  2; k++)
-    	reses_final[k] = new_aigvec (avmgr, width);
-    bool is_zero[new_width*2];
-    for (k = 0; k < width; k++) 
-    	reses[k] = sll_n_bits_aigvec(avmgr, a, k, BTOR_AIG_TRUE);
-    for (k = 0; k < width; k++)
-    	for (i = 0; i < width; i++) 
-    		reses_final[k] -> aigs[i] = btor_aig_and (amgr, reses[k] -> aigs[i], b->aigs[width - 1 - k]);
-    for (k = 0; k < width; k++)
-    	is_zero[k] = false;
-    for (k = width; k < new_width * 2; k++)
-    	is_zero[k] = true;
-
-    uint32_t cur = width - 1;
-    uint32_t last = cur;
-
-    for (j = log_width - 1; j >= 0; j--) {
-    	uint32_t offset = cur;
-     	for (i = 0; i < (1 << j); i++) {
-     		cur = cur + 1;
-     		uint32_t child1 = (cur - (width - 1)) * 2 - 2;
-
-     		uint32_t child2 = child1 + 1;
-     		if (!is_zero[child1] && !is_zero[child2]) {
-     			reses_final[cur] = btor_aigvec_add(avmgr, reses_final[child1], reses_final[child2]);
-     			is_zero[cur] = false;
-          last = cur;
-     		}
-     		else
-     		 if (!is_zero[child1]) {
-     			reses_final[cur] = reses_final[child1];  //  TODO implement with copy
-     			is_zero[cur] = false;
-     		} else
-     			is_zero[cur] = true;
-     	}
-
-
-     }
-     for (k = 0; k < width; k++) 
-        btor_aigvec_release_delete(avmgr, reses[k]);
-      for (k = 0; k < last; k++) 
-        btor_aigvec_release_delete(avmgr, reses_final[k]);
-
-
-  	return reses_final[cur];
-
+  result = new_aigvec(avmgr, a->width);
+  mul_aigvec_NC2_recurse_impl(avmgr->amgr,
+    a->aigs, b->aigs, result->aigs,
+    0, a->width, a->width);
+  return result;
 }
 
 BtorAIGVec *
 btor_aigvec_mul (BtorAIGVecMgr *avmgr, BtorAIGVec *a, BtorAIGVec *b)
 {
-  return mul_aigvec_NC1 (avmgr, a, b);
+  return mul_aigvec_NC2_recurse(avmgr, a, b);
 }
 
 static void
